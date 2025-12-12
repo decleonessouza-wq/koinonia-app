@@ -1,38 +1,51 @@
-import { StyleSheet } from 'react-native';
-
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { supabase } from '@/lib/supabase';
+import { Button, StyleSheet, Text, View } from 'react-native';
 
 export default function HomeScreen() {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    // não precisa navegar manualmente
+    // o guard no app/_layout.tsx fará o redirecionamento
+  };
+
   return (
-    <ThemedView style={styles.container}>
-      <ThemedText type="title">Koinonia 🙏</ThemedText>
+    <View style={styles.container}>
+      <Text style={styles.title}>Koinonia 🙏</Text>
 
-      <ThemedText style={styles.subtitle}>
+      <Text style={styles.subtitle}>
         Comunhão • Palavra • Serviço
-      </ThemedText>
+      </Text>
 
-      <ThemedText style={styles.text}>
-        Seja bem-vindo ao app da igreja.
-      </ThemedText>
-    </ThemedView>
+      <Text style={styles.text}>
+        Bem-vindo ao app da igreja.
+      </Text>
+
+      <View style={styles.spacer} />
+
+      <Button title="Sair" onPress={handleLogout} color="#c0392b" />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    padding: 24,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
+    gap: 12,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
   },
   subtitle: {
-    marginTop: 8,
     fontSize: 16,
+    opacity: 0.7,
   },
   text: {
-    marginTop: 24,
-    fontSize: 14,
-    textAlign: 'center',
+    fontSize: 16,
+  },
+  spacer: {
+    height: 24,
   },
 });
