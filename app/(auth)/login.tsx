@@ -11,19 +11,32 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const onLogin = async () => {
+    if (loading) return; // 🔒 evita clique duplo
+
     try {
+      const e = email.trim();
+      const s = senha;
+
+      if (!e || !s) {
+        Alert.alert('Atenção', 'Informe email e senha.');
+        return;
+      }
+
       setLoading(true);
 
       const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: senha,
+        email: e,
+        password: s,
       });
 
       if (error) throw error;
 
-      router.replace('/(tabs)');
-    } catch (e: any) {
-      Alert.alert('Erro no login', e?.message ?? 'Erro desconhecido');
+      // ✅ NÃO redireciona aqui
+      // O guard em app/_layout.tsx decide:
+      // - sem church_id -> /(auth)/join-church
+      // - com church_id -> /(tabs)
+    } catch (err: any) {
+      Alert.alert('Erro no login', err?.message ?? 'Erro desconhecido');
     } finally {
       setLoading(false);
     }
@@ -40,6 +53,7 @@ export default function LoginScreen() {
         value={email}
         onChangeText={setEmail}
         style={styles.input}
+        editable={!loading}
       />
 
       <TextInput
@@ -48,13 +62,23 @@ export default function LoginScreen() {
         value={senha}
         onChangeText={setSenha}
         style={styles.input}
+        editable={!loading}
       />
 
-      <TouchableOpacity onPress={onLogin} disabled={loading} style={styles.button}>
-        <ThemedText>{loading ? 'Entrando...' : 'Entrar'}</ThemedText>
+      <TouchableOpacity
+        onPress={onLogin}
+        disabled={loading}
+        style={styles.button}
+      >
+        <ThemedText>
+          {loading ? 'Entrando...' : 'Entrar'}
+        </ThemedText>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
+      <TouchableOpacity
+        onPress={() => router.replace('/(auth)/register' as any)}
+        disabled={loading}
+      >
         <ThemedText style={{ marginTop: 16 }}>
           Não tem conta? Criar agora
         </ThemedText>
@@ -64,7 +88,12 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 16, gap: 12 },
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 16,
+    gap: 12,
+  },
   input: {
     borderWidth: 1,
     borderColor: '#444',
