@@ -6,6 +6,7 @@ import RequireAuth from './auth/RequireAuth'
 import Dashboard from './pages/tesouraria/Dashboard'
 import Entradas from './pages/tesouraria/Entradas'
 import Saidas from './pages/tesouraria/Saidas'
+import Services from './pages/tesouraria/Services'
 
 export default function App() {
   return (
@@ -24,6 +25,9 @@ export default function App() {
         <Route path="tesouraria" element={<Dashboard />} />
         <Route path="tesouraria/entradas" element={<Entradas />} />
         <Route path="tesouraria/saidas" element={<Saidas />} />
+
+        {/* ✅ Services */}
+        <Route path="tesouraria/services" element={<Services />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/login" replace />} />

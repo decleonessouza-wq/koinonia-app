@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabaseClient'
 
@@ -6,6 +6,7 @@ type AuthContextValue = {
   user: User | null
   session: Session | null
   loading: boolean
+  signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -25,14 +26,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setSession(data.session ?? null)
       setUser(data.session?.user ?? null)
-      setLoading(false) // ✅ ESSENCIAL
+      setLoading(false)
     })()
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
       if (!alive) return
       setSession(newSession)
       setUser(newSession?.user ?? null)
-      setLoading(false) // ✅ garante que nunca fica preso
+      setLoading(false)
     })
 
     return () => {
@@ -41,7 +42,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(() => ({ user, session, loading }), [user, session, loading])
+  const signOut = useCallback(async () => {
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+  }, [])
+
+  const value = useMemo(
+    () => ({ user, session, loading, signOut }),
+    [user, session, loading, signOut]
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

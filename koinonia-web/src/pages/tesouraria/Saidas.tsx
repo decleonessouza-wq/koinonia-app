@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -13,8 +15,14 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { supabase } from '../../lib/supabaseClient'
-import { getExpensesDetailed, createExpense } from '../../services/treasuryApi'
+import {
+  getExpensesDetailed,
+  createExpense,
+  getExpenseCategories,
+  getServicesForSelect,
+  type ExpenseCategory,
+  type ServiceOption,
+} from '../../services/treasuryApi'
 
 type ExpenseRow = {
   id: string
@@ -28,16 +36,9 @@ type ExpenseRow = {
   service_id?: string | null
 }
 
-type CategoryOption = {
-  id: string
-  name: string
-}
-
 function toInputDateTimeLocal(d: Date) {
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-    d.getMinutes()
-  )}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export default function Saidas() {
@@ -45,8 +46,12 @@ export default function Saidas() {
   const [loading, setLoading] = useState(true)
 
   // categorias (select)
-  const [categories, setCategories] = useState<CategoryOption[]>([])
+  const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [loadingCategories, setLoadingCategories] = useState(false)
+
+  // services (select)
+  const [services, setServices] = useState<ServiceOption[]>([])
+  const [servicesLoading, setServicesLoading] = useState(false)
 
   // dialog/form
   const [open, setOpen] = useState(false)
@@ -57,18 +62,14 @@ export default function Saidas() {
   const [spentAt, setSpentAt] = useState<string>(toInputDateTimeLocal(new Date()))
   const [note, setNote] = useState<string>('')
 
-  // agora é SELECT (id)
   const [categoryId, setCategoryId] = useState<string>('')
 
-  // segue manual por enquanto (próximo passo: select de services)
+  // agora com select (e fallback manual)
   const [serviceId, setServiceId] = useState<string>('')
 
-  // feedback
-  const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({
-    open: false,
-    msg: '',
-    severity: 'success',
-  })
+  const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>(
+    { open: false, msg: '', severity: 'success' }
+  )
 
   async function load() {
     setLoading(true)
@@ -85,24 +86,24 @@ export default function Saidas() {
   async function loadCategories() {
     setLoadingCategories(true)
     try {
-      // ✅ Aqui está a correção: buscar colunas CORRETAS da tabela expense_categories
-      const { data, error } = await supabase
-        .from('expense_categories')
-        .select('id,name')
-        .order('name', { ascending: true })
-
-      if (error) throw error
-
-      const normalized: CategoryOption[] = (data ?? [])
-        .filter((c: any) => c?.id && c?.name)
-        .map((c: any) => ({ id: String(c.id), name: String(c.name) }))
-
-      setCategories(normalized)
+      const data = await getExpenseCategories()
+      setCategories(data ?? [])
     } catch (e: any) {
       setSnack({ open: true, msg: e?.message ?? 'Erro ao carregar categorias', severity: 'error' })
-      setCategories([])
     } finally {
       setLoadingCategories(false)
+    }
+  }
+
+  async function loadServices() {
+    setServicesLoading(true)
+    try {
+      const data = await getServicesForSelect()
+      setServices(data ?? [])
+    } catch (e: any) {
+      setSnack({ open: true, msg: e?.message ?? 'Erro ao carregar cultos/eventos', severity: 'error' })
+    } finally {
+      setServicesLoading(false)
     }
   }
 
@@ -111,40 +112,43 @@ export default function Saidas() {
     loadCategories()
   }, [])
 
-  const columns = useMemo<GridColDef[]>(
+  useEffect(() => {
+    if (open && services.length === 0) loadServices()
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedService = useMemo(() => {
+    if (!serviceId) return null
+    return services.find((s) => s.id === serviceId) ?? null
+  }, [serviceId, services])
+
+  const columns = useMemo<GridColDef<ExpenseRow>[]>(
     () => [
       {
         field: 'spent_at',
         headerName: 'Data',
         flex: 1,
         minWidth: 170,
-        renderCell: (params: any) => {
-          const v = params?.row?.spent_at as string | null | undefined
+        renderCell: (params) => {
+          const v = params.row.spent_at
           if (!v) return '-'
           return new Date(v).toLocaleString('pt-BR')
         },
       },
-      {
-        field: 'title',
-        headerName: 'Título',
-        flex: 1.2,
-        minWidth: 200,
-        renderCell: (p: any) => p?.row?.title ?? '',
-      },
+      { field: 'title', headerName: 'Título', flex: 1.2, minWidth: 200, renderCell: (p) => p.row.title ?? '' },
       {
         field: 'category_name',
         headerName: 'Categoria',
         flex: 1,
         minWidth: 170,
-        renderCell: (p: any) => p?.row?.category_name ?? '',
+        renderCell: (p) => p.row.category_name ?? '',
       },
       {
         field: 'amount',
         headerName: 'Valor',
         flex: 1,
         minWidth: 120,
-        renderCell: (params: any) => {
-          const n = Number(params?.row?.amount ?? 0)
+        renderCell: (params) => {
+          const n = Number(params.row.amount ?? 0)
           return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
         },
       },
@@ -153,15 +157,9 @@ export default function Saidas() {
         headerName: 'Culto/Evento',
         flex: 1,
         minWidth: 180,
-        renderCell: (p: any) => p?.row?.service_title ?? '',
+        renderCell: (p) => p.row.service_title ?? '',
       },
-      {
-        field: 'note',
-        headerName: 'Observação',
-        flex: 1.2,
-        minWidth: 220,
-        renderCell: (p: any) => p?.row?.note ?? '',
-      },
+      { field: 'note', headerName: 'Observação', flex: 1.2, minWidth: 220, renderCell: (p) => p.row.note ?? '' },
     ],
     []
   )
@@ -177,7 +175,6 @@ export default function Saidas() {
 
   async function onSave() {
     const parsedAmount = Number(amount)
-
     if (!title.trim()) {
       setSnack({ open: true, msg: 'Informe um título.', severity: 'error' })
       return
@@ -237,6 +234,7 @@ export default function Saidas() {
             onClick={() => {
               setOpen(true)
               if (!categories.length) loadCategories()
+              if (!services.length) loadServices()
             }}
             disabled={loading}
           >
@@ -250,7 +248,7 @@ export default function Saidas() {
           rows={rows}
           columns={columns}
           loading={loading}
-          getRowId={(r: any) => r.id}
+          getRowId={(r) => r.id}
           disableRowSelectionOnClick
           initialState={{
             pagination: { paginationModel: { pageSize: 25, page: 0 } },
@@ -293,7 +291,7 @@ export default function Saidas() {
               minRows={2}
             />
 
-            {/* ✅ SELECT de categoria */}
+            {/* SELECT de categoria */}
             <TextField
               select
               label="Categoria"
@@ -316,12 +314,50 @@ export default function Saidas() {
               ))}
             </TextField>
 
+            {/* ✅ Select de Culto/Evento */}
+            <Autocomplete
+              options={services}
+              loading={servicesLoading}
+              value={selectedService}
+              onChange={(_, v) => setServiceId(v?.id ?? '')}
+              isOptionEqualToValue={(opt, v) => opt.id === v.id}
+              getOptionLabel={(opt) => opt?.title ?? opt?.id ?? ''}
+              renderOption={(props, opt) => (
+                <li {...props} key={opt.id}>
+                  <Box display="flex" flexDirection="column">
+                    <Typography fontSize={14}>{opt.title ?? '(Sem título)'}</Typography>
+                    <Typography fontSize={12} color="text.secondary">
+                      {opt.service_date ?? ''} {opt.starts_at ? `· ${new Date(opt.starts_at).toLocaleString('pt-BR')}` : ''}
+                    </Typography>
+                  </Box>
+                </li>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Culto/Evento (opcional)"
+                  fullWidth
+                  helperText="Vincule esta saída a um culto/evento."
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {servicesLoading ? <CircularProgress size={18} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+            />
+
+            {/* fallback manual (mantém seu fluxo antigo) */}
             <TextField
-              label="Service ID (opcional, UUID)"
+              label="Service ID (opcional, UUID) — fallback manual"
               value={serviceId}
               onChange={(e) => setServiceId(e.target.value)}
               fullWidth
-              helperText="Depois vamos trocar por um seletor de cultos/eventos."
+              helperText="Se preferir, cole o UUID do culto/evento manualmente."
             />
           </Box>
         </DialogContent>
