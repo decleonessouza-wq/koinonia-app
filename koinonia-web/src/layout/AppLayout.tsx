@@ -30,7 +30,7 @@ export default function AppLayout() {
         variant="permanent"
         sx={{
           width: drawerWidth,
-          [`& .MuiDrawer-paper`]: { width: drawerWidth, top: 64 }
+          [`& .MuiDrawer-paper`]: { width: drawerWidth, top: 64 },
         }}
       >
         <Box sx={{ p: 2 }}>
@@ -42,6 +42,11 @@ export default function AppLayout() {
           </Button>
           <Button fullWidth component={Link} to="/tesouraria/saidas">
             Saídas
+          </Button>
+
+          {/* ✅ Services */}
+          <Button fullWidth component={Link} to="/tesouraria/services">
+            Cultos/Eventos
           </Button>
         </Box>
       </Drawer>

@@ -19,7 +19,9 @@ import {
   createContribution,
   getContributionsDetailed,
   getMembersForSelect,
+  getServicesForSelect,
   type MemberOption,
+  type ServiceOption,
 } from '../../services/treasuryApi'
 
 type ContributionRow = {
@@ -38,9 +40,7 @@ type ContributionRow = {
 
 function toInputDateTimeLocal(d: Date) {
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-    d.getMinutes()
-  )}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export default function Entradas() {
@@ -56,7 +56,7 @@ export default function Entradas() {
   const [receivedAt, setReceivedAt] = useState<string>(toInputDateTimeLocal(new Date()))
   const [note, setNote] = useState<string>('')
 
-  const [memberId, setMemberId] = useState<string>('') // agora preenchido pelo select
+  const [memberId, setMemberId] = useState<string>('')
   const [serviceId, setServiceId] = useState<string>('')
 
   // atenção: NÃO existe a coluna contributor_ref na tabela contributions
@@ -66,6 +66,10 @@ export default function Entradas() {
   // members select
   const [members, setMembers] = useState<MemberOption[]>([])
   const [membersLoading, setMembersLoading] = useState(false)
+
+  // services select
+  const [services, setServices] = useState<ServiceOption[]>([])
+  const [servicesLoading, setServicesLoading] = useState(false)
 
   const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({
     open: false,
@@ -97,23 +101,38 @@ export default function Entradas() {
     }
   }
 
+  async function loadServices() {
+    setServicesLoading(true)
+    try {
+      const data = await getServicesForSelect()
+      setServices(data ?? [])
+    } catch (e: any) {
+      setSnack({ open: true, msg: e?.message ?? 'Erro ao carregar cultos/eventos', severity: 'error' })
+    } finally {
+      setServicesLoading(false)
+    }
+  }
+
   useEffect(() => {
     load()
   }, [])
 
-  // carrega membros quando abrir o modal (1x por sessão; se quiser sempre, remova o if)
+  // carrega selects quando abrir o modal (1x por sessão)
   useEffect(() => {
-    if (open && members.length === 0) {
-      loadMembers()
-    }
+    if (open && members.length === 0) loadMembers()
+    if (open && services.length === 0) loadServices()
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedMember = useMemo(() => {
     if (!memberId) return null
-    return members.find((m: any) => m.id === memberId) ?? null
+    return members.find((m) => m.id === memberId) ?? null
   }, [memberId, members])
 
-  // ✅ versão compatível (sem valueGetter/valueFormatter), igual a que funcionava
+  const selectedService = useMemo(() => {
+    if (!serviceId) return null
+    return services.find((s) => s.id === serviceId) ?? null
+  }, [serviceId, services])
+
   const columns = useMemo<GridColDef[]>(
     () => [
       {
@@ -202,7 +221,7 @@ export default function Entradas() {
     try {
       const iso = new Date(receivedAt).toISOString()
 
-      // ✅ guarda contributorRef no note para não quebrar o insert
+      // guarda contributorRef no note para não quebrar o insert
       const ref = contributorRef.trim()
       const obs = note.trim()
       const finalNote = ref && obs ? `Ref: ${ref}\n${obs}` : ref ? `Ref: ${ref}` : obs ? obs : null
@@ -298,18 +317,18 @@ export default function Entradas() {
               minRows={2}
             />
 
-            {/* ✅ Select de Membros */}
+            {/* Select de Membros */}
             <Autocomplete
               options={members}
               loading={membersLoading}
-              value={selectedMember as any}
-              onChange={(_, v) => setMemberId((v as any)?.id ?? '')}
-              isOptionEqualToValue={(opt: any, v: any) => opt.id === v.id}
-              getOptionLabel={(opt: any) => opt?.full_name ?? opt?.id ?? ''}
-              renderOption={(props, opt: any) => (
+              value={selectedMember}
+              onChange={(_, v) => setMemberId(v?.id ?? '')}
+              isOptionEqualToValue={(opt, v) => opt.id === v.id}
+              getOptionLabel={(opt) => opt?.full_name ?? opt?.name ?? opt?.id ?? ''}
+              renderOption={(props, opt) => (
                 <li {...props} key={opt.id}>
                   <Box display="flex" flexDirection="column">
-                    <Typography fontSize={14}>{opt.full_name ?? '(Sem nome)'}</Typography>
+                    <Typography fontSize={14}>{opt.full_name ?? opt.name ?? '(Sem nome)'}</Typography>
                     <Typography fontSize={12} color="text.secondary">
                       {opt.phone ?? opt.id}
                     </Typography>
@@ -335,12 +354,50 @@ export default function Entradas() {
               )}
             />
 
+            {/* ✅ Select de Culto/Evento */}
+            <Autocomplete
+              options={services}
+              loading={servicesLoading}
+              value={selectedService}
+              onChange={(_, v) => setServiceId(v?.id ?? '')}
+              isOptionEqualToValue={(opt, v) => opt.id === v.id}
+              getOptionLabel={(opt) => opt?.title ?? opt?.id ?? ''}
+              renderOption={(props, opt) => (
+                <li {...props} key={opt.id}>
+                  <Box display="flex" flexDirection="column">
+                    <Typography fontSize={14}>{opt.title ?? '(Sem título)'}</Typography>
+                    <Typography fontSize={12} color="text.secondary">
+                      {opt.service_date ?? ''} {opt.starts_at ? `· ${new Date(opt.starts_at).toLocaleString('pt-BR')}` : ''}
+                    </Typography>
+                  </Box>
+                </li>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Culto/Evento (opcional)"
+                  fullWidth
+                  helperText="Selecione um culto/evento para vincular esta entrada."
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {servicesLoading ? <CircularProgress size={18} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+            />
+
+            {/* fallback manual (mantém seu fluxo antigo) */}
             <TextField
-              label="Service ID (opcional, UUID)"
+              label="Service ID (opcional, UUID) — fallback manual"
               value={serviceId}
               onChange={(e) => setServiceId(e.target.value)}
               fullWidth
-              helperText="Depois vamos trocar por um seletor de cultos/eventos."
+              helperText="Se preferir, cole o UUID do culto/evento manualmente."
             />
 
             <TextField
