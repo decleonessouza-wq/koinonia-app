@@ -41,6 +41,12 @@ function toInputDateTimeLocal(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function isUuid(v: string) {
+  const s = (v ?? '').trim()
+  if (!s) return true // vazio = ok (opcional)
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+}
+
 export default function Saidas() {
   const [rows, setRows] = useState<ExpenseRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,12 +70,14 @@ export default function Saidas() {
 
   const [categoryId, setCategoryId] = useState<string>('')
 
-  // agora com select (e fallback manual)
+  // select + fallback manual (mantido)
   const [serviceId, setServiceId] = useState<string>('')
 
-  const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>(
-    { open: false, msg: '', severity: 'success' }
-  )
+  const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({
+    open: false,
+    msg: '',
+    severity: 'success',
+  })
 
   async function load() {
     setLoading(true)
@@ -175,6 +183,7 @@ export default function Saidas() {
 
   async function onSave() {
     const parsedAmount = Number(amount)
+
     if (!title.trim()) {
       setSnack({ open: true, msg: 'Informe um título.', severity: 'error' })
       return
@@ -189,6 +198,14 @@ export default function Saidas() {
     }
     if (!categoryId) {
       setSnack({ open: true, msg: 'Selecione uma categoria.', severity: 'error' })
+      return
+    }
+    if (!isUuid(serviceId)) {
+      setSnack({
+        open: true,
+        msg: 'O Service ID informado não é um UUID válido. Apague o campo ou selecione um culto/evento.',
+        severity: 'error',
+      })
       return
     }
 
@@ -271,6 +288,7 @@ export default function Saidas() {
               type="number"
               inputProps={{ min: 0, step: '0.01' }}
               fullWidth
+              helperText="Informe o valor da saída."
             />
 
             <TextField
@@ -314,7 +332,7 @@ export default function Saidas() {
               ))}
             </TextField>
 
-            {/* ✅ Select de Culto/Evento */}
+            {/* Select de Culto/Evento */}
             <Autocomplete
               options={services}
               loading={servicesLoading}
@@ -327,7 +345,8 @@ export default function Saidas() {
                   <Box display="flex" flexDirection="column">
                     <Typography fontSize={14}>{opt.title ?? '(Sem título)'}</Typography>
                     <Typography fontSize={12} color="text.secondary">
-                      {opt.service_date ?? ''} {opt.starts_at ? `· ${new Date(opt.starts_at).toLocaleString('pt-BR')}` : ''}
+                      {opt.service_date ?? ''}{' '}
+                      {opt.starts_at ? `· ${new Date(opt.starts_at).toLocaleString('pt-BR')}` : ''}
                     </Typography>
                   </Box>
                 </li>
@@ -351,13 +370,13 @@ export default function Saidas() {
               )}
             />
 
-            {/* fallback manual (mantém seu fluxo antigo) */}
+            {/* fallback manual (mantido) */}
             <TextField
               label="Service ID (opcional, UUID) — fallback manual"
               value={serviceId}
               onChange={(e) => setServiceId(e.target.value)}
               fullWidth
-              helperText="Se preferir, cole o UUID do culto/evento manualmente."
+              helperText="Se preferir, cole o UUID do culto/evento manualmente. (Se não for UUID válido, não deixa salvar.)"
             />
           </Box>
         </DialogContent>

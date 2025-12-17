@@ -1,127 +1,146 @@
 # Koinonia · Tesouraria (README)
 
 Este documento descreve o módulo **Tesouraria** do Koinonia (koinonia-web + Supabase), incluindo:
-- Funcionalidades já concluídas (Entradas/Saídas/Dashboard)
-- Estrutura de banco (tabelas, views)
-- Regras de RLS/políticas
-- Seeds e observações importantes de desenvolvimento
+- Entradas (dízimos/ofertas)
+- Saídas (despesas)
+- Dashboard (saldo total + mensal)
+- Cultos/Eventos (Services) + relatório por culto/evento
+- RLS/políticas, views e decisões do projeto
+
+> Observação importante (Supabase):
+> No SQL Editor rodando como `postgres`, funções como `auth.uid()` e `current_church_id()` podem retornar `NULL`.
+> Para testar seeds/queries no editor, use `church_id` explícito ou simule usuário autenticado.
 
 ---
 
-## 1) Escopo do módulo Tesouraria
+## 1) Escopo do módulo
 
-### Objetivo
-Controlar **Entradas (dízimos/ofertas)** e **Saídas (despesas)** da igreja, com:
-- Listagem detalhada por registros
-- Cadastro de novos registros
-- Dashboard com somatórios e agregação mensal
-- Preparação para vincular registros a **Cultos/Eventos (services)**
+### 1.1 Entradas
+- Listagem via view `v_contributions_detailed`
+- Cadastro de entrada (tipo, valor, data/hora, obs)
+- Associação opcional:
+  - **Membro** (`member_id`)
+  - **Culto/Evento** (`service_id`)
+- Decisão atual: **`contributor_ref` não existe na tabela** `contributions`.
+  - Se o usuário preencher “Referência do contribuidor”, ela é salva no campo **`note`**.
 
-### Regra de visão
-- O **membro** poderá ver o próprio histórico (planejado quando tivermos área do membro/portal).
-- A **igreja** controla por pessoa e também total por culto/evento.
+### 1.2 Saídas
+- Listagem via view `v_expenses_detailed`
+- Cadastro de saída (título, valor, data/hora, obs)
+- Categoria obrigatória (`category_id`)
+- Associação opcional com Culto/Evento (`service_id`)
 
----
+### 1.3 Dashboard
+- Resumo total: entradas / saídas / saldo
+- Resumo mensal: entradas x saídas (barras) + saldo (linha)
+- Consome:
+  - `v_church_balance`
+  - `v_church_balance_monthly`
 
-## 2) Status do cronograma (ordem oficial)
-
-✅ 1️⃣ Implementar Select de Categorias (Saídas)  
-✅ 2️⃣ Implementar Select de Membros (Entradas)  
-✅ 3️⃣ Ajustar Dashboard financeiro  
-⬜ 4️⃣ Revisar services / cultos / eventos
-
-**Progresso atual:** estamos com **1, 2 e 3 concluídos** (funcionando) e prontos para avançar para o item 4.
-
----
-
-## 3) Funcionalidades prontas
-
-### 3.1 Saídas (Despesas)
-- ✅ Listagem via view `v_expenses_detailed`
-- ✅ Cadastro de saída em `expenses`
-- ✅ Select de categorias via `expense_categories` (filtrado por igreja)
-- ✅ Validações básicas (título, valor > 0, data/hora, categoria obrigatória)
-- ✅ Feedback com Snackbar (sucesso/erro)
-
-**Tela:** `src/pages/tesouraria/Saidas.tsx`
+### 1.4 Cultos/Eventos (Services)
+- Cadastro de culto/evento: título, data, início/fim (opcional), notas
+- Listagem com totalizadores (entradas/saídas/saldo)
+- Relatório por culto/evento:
+  - Aba Entradas (do culto)
+  - Aba Saídas (do culto)
+  - Totais e contagem de registros
+  - Botão “Atualizar relatório”
 
 ---
 
-### 3.2 Entradas (Contribuições)
-- ✅ Listagem via view `v_contributions_detailed`
-- ✅ Cadastro de entrada em `contributions`
-- ✅ Select/Autocomplete de membros via `members`
-- ✅ Member opcional (entrada pode existir sem membro associado)
-- ✅ Observação: `contributor_ref` NÃO existe em `contributions`
-  - quando necessário, gravamos referência dentro do campo `note`
+## 2) Rotas e telas (Frontend)
 
-**Tela:** `src/pages/tesouraria/Entradas.tsx`
+Rotas principais (React Router):
+- `/tesouraria` → Dashboard
+- `/tesouraria/entradas` → Entradas
+- `/tesouraria/saidas` → Saídas
+- `/tesouraria/services` → Cultos/Eventos
 
----
+Arquivos (padrão atual do projeto):
+- `src/pages/tesouraria/Dashboard.tsx`
+- `src/pages/tesouraria/Entradas.tsx`
+- `src/pages/tesouraria/Saidas.tsx`
+- `src/pages/tesouraria/Services.tsx`
+- `src/services/treasuryApi.ts` (**fonte de verdade** para chamadas)
 
-### 3.3 Dashboard Tesouraria
-- ✅ Cards: total de entradas, total de saídas, saldo
-- ✅ Gráfico mensal Entradas x Saídas
-- ✅ Gráfico mensal Saldo
-- ✅ Ajuste de render/layout para evitar erros de tipagem (MUI Grid incompatível)
-- ✅ Dashboard renderizando sem erros
-
-**Tela:** `src/pages/tesouraria/Dashboard.tsx`  
-**Dados:** `v_church_balance` e `v_church_balance_monthly`
+Menu/Layout:
+- Item “Cultos/Eventos” aparece no menu lateral
+- Logout usa `useAuth()` (Supabase)
 
 ---
 
-## 4) Banco de dados (Supabase)
+## 3) Banco de Dados (Supabase)
 
-### 4.1 Tabelas principais
-- `contributions` (entradas)
-- `expenses` (saídas)
-- `expense_categories` (categorias de despesa por igreja)
-- `members` (membros)
-- `services` (cultos/eventos) *(usaremos no passo 4)*
+### 3.1 Tabelas principais (Tesouraria)
+- `expense_categories`
+- `members`
+- `contributions`
+- `expenses`
+- `services`
 
-#### members (colunas confirmadas)
-- `id` (uuid)
-- `church_id` (uuid, default `current_church_id()`)
-- `full_name` (text)
-- `phone` (text, nullable)
-- `user_id` (uuid, nullable)
-- `link_code` (text, nullable)
-- `created_at`, `updated_at`
+Campos relevantes:
+- `members`: `id`, `church_id`, `full_name`, `phone`, ...
+- `services`: `id`, `church_id`, `title`, `service_date`, `starts_at`, `ends_at`, `notes`, `created_at`
+- `contributions`: `service_id` (opcional), `member_id` (opcional), `note` (opcional)
+- `expenses`: `service_id` (opcional), `category_id` (obrigatório), `note` (opcional)
 
-⚠️ Importante: a coluna é `full_name` (não `name`).
-
----
-
-### 4.2 Views usadas pelo frontend
+### 3.2 Views usadas no app
 - `v_contributions_detailed`
 - `v_expenses_detailed`
 - `v_church_balance`
 - `v_church_balance_monthly`
+- `v_services_detailed`
+
+`v_services_detailed` (conceito):
+- lista services + somatórios:
+  - `total_income`
+  - `total_expense`
+  - `balance`
 
 ---
 
-## 5) RLS / Políticas (conceito e cuidado)
+## 4) RLS / Políticas (resumo)
 
-### 5.1 Conceito
-Todas as tabelas do módulo devem ser filtradas por `church_id` do usuário autenticado.
+Padrão adotado:
+- Controle por `church_id` (multi-igrejas)
+- Tabelas com `church_id` usando default `current_church_id()` quando aplicável
+- Policies de SELECT/INSERT/UPDATE/DELETE permitindo somente registros do `church_id` atual
 
-### 5.2 Ponto crítico no SQL Editor
-Ao rodar queries no Supabase SQL Editor com role `postgres`, funções como:
-- `current_church_id()`
-- `auth.uid()`
-
-podem retornar `NULL`.
-
-✅ Para **seed/teste no SQL Editor**, informe `church_id` explicitamente ao inserir dados.
+Ponto crítico:
+- No SQL Editor como `postgres`, `current_church_id()` pode retornar NULL
+  - Para seeds/testes no editor: informe `church_id` explicitamente.
 
 ---
 
-## 6) Seeds (teste rápido)
+## 5) Decisões atuais do app
 
-### 6.1 Seed de categorias (Saídas)
-Insira categorias com `church_id` explícito:
+### 5.1 contributor_ref
+- Não existe coluna `contributor_ref` em `contributions`
+- Se precisar salvar referência do contribuidor, usar `note`
+  - Ex.: `Ref: 123ABC` + texto de observação
 
+### 5.2 Service ID (fallback manual)
+- Entradas/Saídas possuem select de Culto/Evento
+- Existe (por enquanto) um campo “Service ID (UUID) — fallback manual”
+- **Decisão atual:** manter fallback por segurança (remoção será feita depois com ajuste planejado)
+
+---
+
+## 6) Teste rápido (fluxo manual)
+
+1) Crie um culto/evento em **Cultos/Eventos**
+2) Crie uma **Entrada** vinculando o culto/evento
+3) Crie uma **Saída** vinculando o culto/evento
+4) Volte em **Cultos/Eventos** → “Ver relatório”
+5) Confira se:
+   - Entradas e Saídas aparecem
+   - Totais e saldo batem com o banco
+
+---
+
+## 7) Seeds (opcional)
+
+### 7.1 Categorias de saída (expense_categories)
 ```sql
 insert into public.expense_categories (name, church_id)
 values

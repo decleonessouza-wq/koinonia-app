@@ -40,7 +40,23 @@ type ContributionRow = {
 
 function toInputDateTimeLocal(d: Date) {
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
+    d.getMinutes()
+  )}`
+}
+
+function formatBRL(value: number) {
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function parseBRLNumber(input: string) {
+  // aceita "10", "10.5", "10,50", "1.234,56"
+  const cleaned = String(input ?? '')
+    .trim()
+    .replace(/\./g, '')
+    .replace(',', '.')
+  const n = Number(cleaned)
+  return n
 }
 
 export default function Entradas() {
@@ -57,7 +73,10 @@ export default function Entradas() {
   const [note, setNote] = useState<string>('')
 
   const [memberId, setMemberId] = useState<string>('')
-  const [serviceId, setServiceId] = useState<string>('')
+
+  // ✅ service: select (autocomplete) + fallback manual SEPARADOS
+  const [serviceIdSelected, setServiceIdSelected] = useState<string>('')
+  const [serviceIdManual, setServiceIdManual] = useState<string>('')
 
   // atenção: NÃO existe a coluna contributor_ref na tabela contributions
   // por enquanto vamos salvar essa referência dentro do campo note
@@ -129,9 +148,9 @@ export default function Entradas() {
   }, [memberId, members])
 
   const selectedService = useMemo(() => {
-    if (!serviceId) return null
-    return services.find((s) => s.id === serviceId) ?? null
-  }, [serviceId, services])
+    if (!serviceIdSelected) return null
+    return services.find((s) => s.id === serviceIdSelected) ?? null
+  }, [serviceIdSelected, services])
 
   const columns = useMemo<GridColDef[]>(
     () => [
@@ -158,10 +177,7 @@ export default function Entradas() {
         headerName: 'Valor',
         flex: 1,
         minWidth: 120,
-        renderCell: (params: any) => {
-          const n = Number(params?.row?.amount ?? 0)
-          return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-        },
+        renderCell: (params: any) => formatBRL(Number(params?.row?.amount ?? 0)),
       },
       {
         field: 'member_name',
@@ -201,12 +217,13 @@ export default function Entradas() {
     setReceivedAt(toInputDateTimeLocal(new Date()))
     setNote('')
     setMemberId('')
-    setServiceId('')
+    setServiceIdSelected('')
+    setServiceIdManual('')
     setContributorRef('')
   }
 
   async function onSave() {
-    const parsedAmount = Number(amount)
+    const parsedAmount = parseBRLNumber(amount)
 
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setSnack({ open: true, msg: 'Informe um valor válido (maior que 0).', severity: 'error' })
@@ -217,9 +234,18 @@ export default function Entradas() {
       return
     }
 
+    const receivedDate = new Date(receivedAt)
+    if (Number.isNaN(receivedDate.getTime())) {
+      setSnack({ open: true, msg: 'Data/Hora inválida. Verifique o campo e tente novamente.', severity: 'error' })
+      return
+    }
+
+    // ✅ prioridade: fallback manual > selecionado
+    const finalServiceId = serviceIdManual.trim() ? serviceIdManual.trim() : serviceIdSelected.trim() ? serviceIdSelected.trim() : null
+
     setSaving(true)
     try {
-      const iso = new Date(receivedAt).toISOString()
+      const iso = receivedDate.toISOString()
 
       // guarda contributorRef no note para não quebrar o insert
       const ref = contributorRef.trim()
@@ -232,7 +258,7 @@ export default function Entradas() {
         received_at: iso,
         note: finalNote,
         member_id: memberId.trim() ? memberId.trim() : null,
-        service_id: serviceId.trim() ? serviceId.trim() : null,
+        service_id: finalServiceId,
       })
 
       setSnack({ open: true, msg: 'Entrada cadastrada com sucesso!', severity: 'success' })
@@ -242,7 +268,7 @@ export default function Entradas() {
     } catch (e: any) {
       setSnack({
         open: true,
-        msg: e?.message ?? 'Erro ao cadastrar entrada (verifique RLS/permissões).',
+        msg: e?.message ?? 'Erro ao cadastrar entrada (verifique permissões/RLS).',
         severity: 'error',
       })
     } finally {
@@ -291,12 +317,12 @@ export default function Entradas() {
             </TextField>
 
             <TextField
-              label="Valor"
+              label="Valor (R$)"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              type="number"
-              inputProps={{ min: 0, step: '0.01' }}
+              type="text"
               fullWidth
+              helperText="Aceita vírgula. Ex.: 10,50"
             />
 
             <TextField
@@ -354,12 +380,12 @@ export default function Entradas() {
               )}
             />
 
-            {/* ✅ Select de Culto/Evento */}
+            {/* Select de Culto/Evento */}
             <Autocomplete
               options={services}
               loading={servicesLoading}
               value={selectedService}
-              onChange={(_, v) => setServiceId(v?.id ?? '')}
+              onChange={(_, v) => setServiceIdSelected(v?.id ?? '')}
               isOptionEqualToValue={(opt, v) => opt.id === v.id}
               getOptionLabel={(opt) => opt?.title ?? opt?.id ?? ''}
               renderOption={(props, opt) => (
@@ -367,7 +393,8 @@ export default function Entradas() {
                   <Box display="flex" flexDirection="column">
                     <Typography fontSize={14}>{opt.title ?? '(Sem título)'}</Typography>
                     <Typography fontSize={12} color="text.secondary">
-                      {opt.service_date ?? ''} {opt.starts_at ? `· ${new Date(opt.starts_at).toLocaleString('pt-BR')}` : ''}
+                      {opt.service_date ?? ''}{' '}
+                      {opt.starts_at ? `· ${new Date(opt.starts_at).toLocaleString('pt-BR')}` : ''}
                     </Typography>
                   </Box>
                 </li>
@@ -391,13 +418,13 @@ export default function Entradas() {
               )}
             />
 
-            {/* fallback manual (mantém seu fluxo antigo) */}
+            {/* fallback manual (mantém o fluxo) */}
             <TextField
               label="Service ID (opcional, UUID) — fallback manual"
-              value={serviceId}
-              onChange={(e) => setServiceId(e.target.value)}
+              value={serviceIdManual}
+              onChange={(e) => setServiceIdManual(e.target.value)}
               fullWidth
-              helperText="Se preferir, cole o UUID do culto/evento manualmente."
+              helperText="Se preencher aqui, ele terá prioridade sobre o selecionado acima."
             />
 
             <TextField
@@ -405,7 +432,7 @@ export default function Entradas() {
               value={contributorRef}
               onChange={(e) => setContributorRef(e.target.value)}
               fullWidth
-              helperText="Por enquanto será salva dentro de 'Observação' (note), porque a coluna contributor_ref não existe na tabela."
+              helperText="Será salva dentro de 'Observação' (note), pois contributor_ref não existe na tabela."
             />
           </Box>
         </DialogContent>
