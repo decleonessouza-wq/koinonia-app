@@ -147,3 +147,4 @@ values
   ('Materiais', 'SEU_CHURCH_ID'),
   ('Decoração', 'SEU_CHURCH_ID'),
   ('Limpeza', 'SEU_CHURCH_ID');
+ 
