@@ -44,12 +44,80 @@ export type ServiceDetailed = {
 
 /**
  * =========================
+ * Tipos (Módulo de Membros)
+ * =========================
+ */
+
+export type MemberRow = {
+  id: string
+  church_id: string
+  full_name: string
+  phone: string | null
+  user_id: string | null
+  link_code: string | null
+  created_at: string
+  updated_at?: string
+}
+
+/**
+ * =========================
+ * Tipos (Views detalhadas)
+ * =========================
+ * (usados nos relatórios avançados)
+ */
+
+export type ContributionDetailedRow = {
+  id: string
+  received_at: string | null
+  kind: string | null
+  amount: number | null
+  member_id?: string | null
+  member_name?: string | null
+  member_phone?: string | null
+  service_id?: string | null
+  service_title?: string | null
+  note?: string | null
+}
+
+export type ExpenseDetailedRow = {
+  id: string
+  spent_at: string | null
+  title: string | null
+  amount: number | null
+  category_id?: string | null
+  category_name?: string | null
+  service_id?: string | null
+  service_title?: string | null
+  note?: string | null
+}
+
+/**
+ * =========================
  * Helpers
  * =========================
  */
 
 function throwIfError(error: any) {
   if (error) throw error
+}
+
+/**
+ * Tenta executar uma RPC; se falhar (nome/assinatura), cai no fallback informado.
+ * Isso evita quebrar o frontend enquanto você ajusta o SQL/RPCs.
+ */
+async function tryRpcOrFallback<T>(
+  rpcName: string,
+  rpcArgs: Record<string, any>,
+  fallback: () => Promise<T>
+): Promise<T> {
+  try {
+    const { data, error } = await supabase.rpc(rpcName, rpcArgs)
+    if (error) throw error
+    return (data ?? []) as T
+  } catch (_e) {
+    // fallback certeiro usando views/filters
+    return await fallback()
+  }
 }
 
 /**
@@ -65,7 +133,10 @@ export async function getChurchBalance() {
 }
 
 export async function getChurchBalanceMonthly() {
-  const { data, error } = await supabase.from('v_church_balance_monthly').select('*').order('month', { ascending: true })
+  const { data, error } = await supabase
+    .from('v_church_balance_monthly')
+    .select('*')
+    .order('month', { ascending: true })
   throwIfError(error)
   return data
 }
@@ -220,4 +291,158 @@ export async function getExpensesDetailedByService(serviceId: string) {
     .order('spent_at', { ascending: false })
   throwIfError(error)
   return data
+}
+
+/**
+ * =========================
+ * MEMBERS (Módulo Global)
+ * =========================
+ */
+
+export async function getMembers(): Promise<MemberRow[]> {
+  const { data, error } = await supabase
+    .from('members')
+    .select('id,church_id,full_name,phone,user_id,link_code,created_at,updated_at')
+    .order('created_at', { ascending: false })
+    .limit(2000)
+  throwIfError(error)
+  return (data ?? []) as MemberRow[]
+}
+
+export async function createMember(payload: { full_name: string; phone: string | null; link_code: string | null }) {
+  const { data, error } = await supabase.from('members').insert(payload).select('*').single()
+  throwIfError(error)
+  return data
+}
+
+export async function updateMember(
+  memberId: string,
+  payload: {
+    full_name: string
+    phone: string | null
+    link_code: string | null
+  }
+) {
+  const { data, error } = await supabase.from('members').update(payload).eq('id', memberId).select('*').single()
+  throwIfError(error)
+  return data
+}
+
+export async function deleteMember(memberId: string) {
+  const { error } = await supabase.from('members').delete().eq('id', memberId)
+  throwIfError(error)
+  return true
+}
+
+/**
+ * Opcional: RPC para gerar link_code automático.
+ * Requer que exista no banco:
+ * - public.current_church_id()
+ * - public.generate_member_link_code(p_church_id uuid, p_len int default 6)
+ */
+export async function getCurrentChurchId(): Promise<string> {
+  const { data, error } = await supabase.rpc('current_church_id')
+  throwIfError(error)
+  return String(data)
+}
+
+export async function generateMemberLinkCodeForCurrentChurch(len = 6): Promise<string> {
+  const churchId = await getCurrentChurchId()
+  const { data, error } = await supabase.rpc('generate_member_link_code', {
+    p_church_id: churchId,
+    p_len: len,
+  })
+  throwIfError(error)
+  return String(data)
+}
+
+/**
+ * =========================
+ * VÍNCULO MEMBRO ↔ AUTH
+ * =========================
+ */
+
+export async function bindMemberToUser(linkCode: string): Promise<{
+  member_id: string
+  full_name: string
+  user_id: string
+}> {
+  const { data, error } = await supabase.rpc('bind_member_to_user', {
+    p_link_code: linkCode,
+  })
+  throwIfError(error)
+  if (Array.isArray(data)) return data[0]
+  return data
+}
+
+/**
+ * =========================
+ * RELATÓRIOS AVANÇADOS (RPCs)
+ * =========================
+ * Implementação via RPC (como você pediu) + fallback para views (não quebra).
+ */
+
+/**
+ * RPC esperada:
+ * - get_contributions_detailed_by_period(p_start timestamptz, p_end timestamptz)
+ */
+export async function getContributionsDetailedByPeriod(
+  startIso: string,
+  endIso: string
+): Promise<ContributionDetailedRow[]> {
+  return await tryRpcOrFallback<ContributionDetailedRow[]>(
+    'get_contributions_detailed_by_period',
+    { p_start: startIso, p_end: endIso },
+    async () => {
+      const { data, error } = await supabase
+        .from('v_contributions_detailed')
+        .select('*')
+        .gte('received_at', startIso)
+        .lte('received_at', endIso)
+        .order('received_at', { ascending: false })
+      throwIfError(error)
+      return (data ?? []) as ContributionDetailedRow[]
+    }
+  )
+}
+
+/**
+ * RPC esperada:
+ * - get_expenses_detailed_by_period(p_start timestamptz, p_end timestamptz)
+ */
+export async function getExpensesDetailedByPeriod(startIso: string, endIso: string): Promise<ExpenseDetailedRow[]> {
+  return await tryRpcOrFallback<ExpenseDetailedRow[]>(
+    'get_expenses_detailed_by_period',
+    { p_start: startIso, p_end: endIso },
+    async () => {
+      const { data, error } = await supabase
+        .from('v_expenses_detailed')
+        .select('*')
+        .gte('spent_at', startIso)
+        .lte('spent_at', endIso)
+        .order('spent_at', { ascending: false })
+      throwIfError(error)
+      return (data ?? []) as ExpenseDetailedRow[]
+    }
+  )
+}
+
+/**
+ * RPC esperada:
+ * - get_contributions_detailed_by_member(p_member_id uuid)
+ */
+export async function getContributionsDetailedByMember(memberId: string): Promise<ContributionDetailedRow[]> {
+  return await tryRpcOrFallback<ContributionDetailedRow[]>(
+    'get_contributions_detailed_by_member',
+    { p_member_id: memberId },
+    async () => {
+      const { data, error } = await supabase
+        .from('v_contributions_detailed')
+        .select('*')
+        .eq('member_id', memberId)
+        .order('received_at', { ascending: false })
+      throwIfError(error)
+      return (data ?? []) as ContributionDetailedRow[]
+    }
+  )
 }
