@@ -1,8 +1,8 @@
-import { AppBar, Box, Button, Drawer, Toolbar, Typography } from '@mui/material'
+import { AppBar, Box, Button, Divider, Drawer, Toolbar, Typography } from '@mui/material'
 import { Link, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 
-const drawerWidth = 220
+const drawerWidth = 240
 
 export default function AppLayout() {
   const { signOut } = useAuth()
@@ -18,7 +18,7 @@ export default function AppLayout() {
       <AppBar position="fixed" sx={{ zIndex: 1300 }}>
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Koinonia · Tesouraria
+            Koinonia
           </Typography>
           <Button color="inherit" onClick={handleLogout}>
             Sair
@@ -33,7 +33,11 @@ export default function AppLayout() {
           [`& .MuiDrawer-paper`]: { width: drawerWidth, top: 64 },
         }}
       >
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: 2, display: 'grid', gap: 1 }}>
+          <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>
+            Tesouraria
+          </Typography>
+
           <Button fullWidth component={Link} to="/tesouraria">
             Dashboard
           </Button>
@@ -43,10 +47,31 @@ export default function AppLayout() {
           <Button fullWidth component={Link} to="/tesouraria/saidas">
             Saídas
           </Button>
-
-          {/* ✅ Services */}
           <Button fullWidth component={Link} to="/tesouraria/services">
             Cultos/Eventos
+          </Button>
+
+          <Divider sx={{ my: 1 }} />
+
+          <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>
+            Módulos
+          </Typography>
+
+          <Button fullWidth component={Link} to="/membros">
+            Membros
+          </Button>
+          <Button fullWidth component={Link} to="/membros/vincular">
+            Vincular Membro
+          </Button>
+
+          <Divider sx={{ my: 1 }} />
+
+          <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>
+            Relatórios
+          </Typography>
+
+          <Button fullWidth component={Link} to="/relatorios-avancados">
+            Relatórios avançados
           </Button>
         </Box>
       </Drawer>

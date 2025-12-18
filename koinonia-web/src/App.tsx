@@ -8,6 +8,13 @@ import Entradas from './pages/tesouraria/Entradas'
 import Saidas from './pages/tesouraria/Saidas'
 import Services from './pages/tesouraria/Services'
 
+// ✅ Módulo Membros (global)
+import Membros from './pages/membros/Membros'
+import VincularMembro from './pages/membros/VincularMembro'
+
+// ✅ Relatórios Avançados (início)
+import RelatoriosAvancados from './pages/relatorios/RelatoriosAvancados'
+
 export default function App() {
   return (
     <Routes>
@@ -22,12 +29,19 @@ export default function App() {
         }
       >
         <Route index element={<Navigate to="/tesouraria" replace />} />
+
+        {/* Tesouraria */}
         <Route path="tesouraria" element={<Dashboard />} />
         <Route path="tesouraria/entradas" element={<Entradas />} />
         <Route path="tesouraria/saidas" element={<Saidas />} />
-
-        {/* ✅ Services */}
         <Route path="tesouraria/services" element={<Services />} />
+
+        {/* Membros (global) */}
+        <Route path="membros" element={<Membros />} />
+        <Route path="membros/vincular" element={<VincularMembro />} />
+
+        {/* Relatórios Avançados (início) */}
+        <Route path="relatorios-avancados" element={<RelatoriosAvancados />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/login" replace />} />
