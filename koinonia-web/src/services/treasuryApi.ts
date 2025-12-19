@@ -102,22 +102,28 @@ function throwIfError(error: any) {
 }
 
 /**
- * Tenta executar uma RPC; se falhar (nome/assinatura), cai no fallback informado.
- * Isso evita quebrar o frontend enquanto você ajusta o SQL/RPCs.
+ * Tenta executar uma lista de RPCs (na ordem).
+ * - Se a primeira não existir, tenta a próxima.
+ * - Se todas falharem, cai no fallback.
+ *
+ * Importante: colocando PRIMEIRO as RPCs que EXISTEM no banco,
+ * você para de ver 404 no console.
  */
-async function tryRpcOrFallback<T>(
-  rpcName: string,
+async function tryRpcNamesOrFallback<T>(
+  rpcNames: string[],
   rpcArgs: Record<string, any>,
   fallback: () => Promise<T>
 ): Promise<T> {
-  try {
-    const { data, error } = await supabase.rpc(rpcName, rpcArgs)
-    if (error) throw error
-    return (data ?? []) as T
-  } catch (_e) {
-    // fallback certeiro usando views/filters
-    return await fallback()
+  for (const rpcName of rpcNames) {
+    try {
+      const { data, error } = await supabase.rpc(rpcName, rpcArgs)
+      if (error) throw error
+      return (data ?? []) as T
+    } catch (_e) {
+      // tenta o próximo
+    }
   }
+  return await fallback()
 }
 
 /**
@@ -133,10 +139,7 @@ export async function getChurchBalance() {
 }
 
 export async function getChurchBalanceMonthly() {
-  const { data, error } = await supabase
-    .from('v_church_balance_monthly')
-    .select('*')
-    .order('month', { ascending: true })
+  const { data, error } = await supabase.from('v_church_balance_monthly').select('*').order('month', { ascending: true })
   throwIfError(error)
   return data
 }
@@ -148,10 +151,7 @@ export async function getChurchBalanceMonthly() {
  */
 
 export async function getContributionsDetailed() {
-  const { data, error } = await supabase
-    .from('v_contributions_detailed')
-    .select('*')
-    .order('received_at', { ascending: false })
+  const { data, error } = await supabase.from('v_contributions_detailed').select('*').order('received_at', { ascending: false })
   throwIfError(error)
   return data
 }
@@ -176,10 +176,7 @@ export async function createContribution(payload: {
  */
 
 export async function getExpensesDetailed() {
-  const { data, error } = await supabase
-    .from('v_expenses_detailed')
-    .select('*')
-    .order('spent_at', { ascending: false })
+  const { data, error } = await supabase.from('v_expenses_detailed').select('*').order('spent_at', { ascending: false })
   throwIfError(error)
   return data
 }
@@ -203,30 +200,21 @@ export async function createExpense(payload: {
  * =========================
  */
 
-/** ✅ CORRIGIDO: estava selecionando colunas de members por engano */
 export async function getExpenseCategories(): Promise<ExpenseCategory[]> {
-  const { data, error } = await supabase
-    .from('expense_categories')
-    .select('id,name,church_id')
-    .order('name', { ascending: true })
+  const { data, error } = await supabase.from('expense_categories').select('id,name,church_id').order('name', { ascending: true })
   throwIfError(error)
   return (data ?? []) as ExpenseCategory[]
 }
 
 export async function getMembersForSelect(): Promise<MemberOption[]> {
-  const { data, error } = await supabase
-    .from('members')
-    .select('id,full_name,phone')
-    .order('full_name', { ascending: true })
-    .limit(500)
+  const { data, error } = await supabase.from('members').select('id,full_name,phone').order('full_name', { ascending: true }).limit(500)
   throwIfError(error)
 
-  // mantém compatibilidade com "name" se algum componente antigo usar
   return (data ?? []).map((r: any) => ({
     id: r.id,
     full_name: r.full_name,
     phone: r.phone ?? null,
-    name: r.full_name,
+    name: r.full_name, // compat
   })) as MemberOption[]
 }
 
@@ -259,10 +247,7 @@ export async function createService(payload: {
 }
 
 export async function getServicesDetailed(): Promise<ServiceDetailed[]> {
-  const { data, error } = await supabase
-    .from('v_services_detailed')
-    .select('*')
-    .order('service_date', { ascending: false })
+  const { data, error } = await supabase.from('v_services_detailed').select('*').order('service_date', { ascending: false })
   throwIfError(error)
   return (data ?? []) as ServiceDetailed[]
 }
@@ -274,21 +259,13 @@ export async function getServicesDetailed(): Promise<ServiceDetailed[]> {
  */
 
 export async function getContributionsDetailedByService(serviceId: string) {
-  const { data, error } = await supabase
-    .from('v_contributions_detailed')
-    .select('*')
-    .eq('service_id', serviceId)
-    .order('received_at', { ascending: false })
+  const { data, error } = await supabase.from('v_contributions_detailed').select('*').eq('service_id', serviceId).order('received_at', { ascending: false })
   throwIfError(error)
   return data
 }
 
 export async function getExpensesDetailedByService(serviceId: string) {
-  const { data, error } = await supabase
-    .from('v_expenses_detailed')
-    .select('*')
-    .eq('service_id', serviceId)
-    .order('spent_at', { ascending: false })
+  const { data, error } = await supabase.from('v_expenses_detailed').select('*').eq('service_id', serviceId).order('spent_at', { ascending: false })
   throwIfError(error)
   return data
 }
@@ -317,11 +294,7 @@ export async function createMember(payload: { full_name: string; phone: string |
 
 export async function updateMember(
   memberId: string,
-  payload: {
-    full_name: string
-    phone: string | null
-    link_code: string | null
-  }
+  payload: { full_name: string; phone: string | null; link_code: string | null }
 ) {
   const { data, error } = await supabase.from('members').update(payload).eq('id', memberId).select('*').single()
   throwIfError(error)
@@ -336,9 +309,6 @@ export async function deleteMember(memberId: string) {
 
 /**
  * Opcional: RPC para gerar link_code automático.
- * Requer que exista no banco:
- * - public.current_church_id()
- * - public.generate_member_link_code(p_church_id uuid, p_len int default 6)
  */
 export async function getCurrentChurchId(): Promise<string> {
   const { data, error } = await supabase.rpc('current_church_id')
@@ -348,10 +318,7 @@ export async function getCurrentChurchId(): Promise<string> {
 
 export async function generateMemberLinkCodeForCurrentChurch(len = 6): Promise<string> {
   const churchId = await getCurrentChurchId()
-  const { data, error } = await supabase.rpc('generate_member_link_code', {
-    p_church_id: churchId,
-    p_len: len,
-  })
+  const { data, error } = await supabase.rpc('generate_member_link_code', { p_church_id: churchId, p_len: len })
   throwIfError(error)
   return String(data)
 }
@@ -362,14 +329,8 @@ export async function generateMemberLinkCodeForCurrentChurch(len = 6): Promise<s
  * =========================
  */
 
-export async function bindMemberToUser(linkCode: string): Promise<{
-  member_id: string
-  full_name: string
-  user_id: string
-}> {
-  const { data, error } = await supabase.rpc('bind_member_to_user', {
-    p_link_code: linkCode,
-  })
+export async function bindMemberToUser(linkCode: string): Promise<{ member_id: string; full_name: string; user_id: string }> {
+  const { data, error } = await supabase.rpc('bind_member_to_user', { p_link_code: linkCode })
   throwIfError(error)
   if (Array.isArray(data)) return data[0]
   return data
@@ -379,19 +340,18 @@ export async function bindMemberToUser(linkCode: string): Promise<{
  * =========================
  * RELATÓRIOS AVANÇADOS (RPCs)
  * =========================
- * Implementação via RPC (como você pediu) + fallback para views (não quebra).
+ * Agora chamando primeiro os nomes que EXISTEM no seu banco:
+ * - report_contributions_detailed_by_period
+ * - report_expenses_detailed_by_period
+ * - report_contributions_detailed_by_member
+ *
+ * Mantém compatibilidade tentando também os nomes antigos "get_*"
+ * e, por fim, fallback para views.
  */
 
-/**
- * RPC esperada:
- * - get_contributions_detailed_by_period(p_start timestamptz, p_end timestamptz)
- */
-export async function getContributionsDetailedByPeriod(
-  startIso: string,
-  endIso: string
-): Promise<ContributionDetailedRow[]> {
-  return await tryRpcOrFallback<ContributionDetailedRow[]>(
-    'get_contributions_detailed_by_period',
+export async function getContributionsDetailedByPeriod(startIso: string, endIso: string): Promise<ContributionDetailedRow[]> {
+  return await tryRpcNamesOrFallback<ContributionDetailedRow[]>(
+    ['report_contributions_detailed_by_period', 'get_contributions_detailed_by_period'],
     { p_start: startIso, p_end: endIso },
     async () => {
       const { data, error } = await supabase
@@ -406,13 +366,9 @@ export async function getContributionsDetailedByPeriod(
   )
 }
 
-/**
- * RPC esperada:
- * - get_expenses_detailed_by_period(p_start timestamptz, p_end timestamptz)
- */
 export async function getExpensesDetailedByPeriod(startIso: string, endIso: string): Promise<ExpenseDetailedRow[]> {
-  return await tryRpcOrFallback<ExpenseDetailedRow[]>(
-    'get_expenses_detailed_by_period',
+  return await tryRpcNamesOrFallback<ExpenseDetailedRow[]>(
+    ['report_expenses_detailed_by_period', 'get_expenses_detailed_by_period'],
     { p_start: startIso, p_end: endIso },
     async () => {
       const { data, error } = await supabase
@@ -427,13 +383,9 @@ export async function getExpensesDetailedByPeriod(startIso: string, endIso: stri
   )
 }
 
-/**
- * RPC esperada:
- * - get_contributions_detailed_by_member(p_member_id uuid)
- */
 export async function getContributionsDetailedByMember(memberId: string): Promise<ContributionDetailedRow[]> {
-  return await tryRpcOrFallback<ContributionDetailedRow[]>(
-    'get_contributions_detailed_by_member',
+  return await tryRpcNamesOrFallback<ContributionDetailedRow[]>(
+    ['report_contributions_detailed_by_member', 'get_contributions_detailed_by_member'],
     { p_member_id: memberId },
     async () => {
       const { data, error } = await supabase
