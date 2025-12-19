@@ -11,6 +11,7 @@ import {
   Snackbar,
   TextField,
   Typography,
+  CircularProgress,
 } from '@mui/material'
 import {
   createMember,
@@ -28,6 +29,15 @@ function formatDateTimeBR(v: any) {
   return d.toLocaleString('pt-BR')
 }
 
+function normalizeText(v: string) {
+  return (v ?? '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
 export default function Membros() {
   const [rows, setRows] = useState<MemberRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,6 +51,14 @@ export default function Membros() {
   const [phone, setPhone] = useState('')
   const [linkCode, setLinkCode] = useState('')
   const [generatingLink, setGeneratingLink] = useState(false)
+
+  // busca
+  const [query, setQuery] = useState('')
+
+  // confirmação de delete
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<MemberRow | null>(null)
 
   const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({
     open: false,
@@ -67,6 +85,12 @@ export default function Membros() {
     setLinkCode('')
   }
 
+  function closeDialog() {
+    if (saving) return
+    setOpen(false)
+    resetForm()
+  }
+
   function openNew() {
     resetForm()
     setOpen(true)
@@ -84,7 +108,7 @@ export default function Membros() {
     setGeneratingLink(true)
     try {
       const code = await generateMemberLinkCodeForCurrentChurch(6)
-      setLinkCode(code ?? '')
+      setLinkCode((code ?? '').toString().toUpperCase())
       setSnack({ open: true, msg: 'Link code gerado.', severity: 'success' })
     } catch (e: any) {
       setSnack({ open: true, msg: e?.message ?? 'Erro ao gerar link code', severity: 'error' })
@@ -126,22 +150,41 @@ export default function Membros() {
     }
   }
 
-  async function onDelete(row: MemberRow) {
-    const ok = window.confirm(`Excluir o membro "${row.full_name}"?`)
-    if (!ok) return
+  function askDelete(row: MemberRow) {
+    setDeleteTarget(row)
+    setDeleteOpen(true)
+  }
 
+  async function confirmDelete() {
+    if (!deleteTarget?.id) return
+    setDeleting(true)
     try {
-      await deleteMember(row.id)
+      await deleteMember(deleteTarget.id)
       setSnack({ open: true, msg: 'Membro excluído.', severity: 'success' })
+      setDeleteOpen(false)
+      setDeleteTarget(null)
       await load()
     } catch (e: any) {
       setSnack({ open: true, msg: e?.message ?? 'Erro ao excluir membro (RLS/permissões).', severity: 'error' })
+    } finally {
+      setDeleting(false)
     }
   }
 
   useEffect(() => {
     load()
   }, [])
+
+  const filteredRows = useMemo(() => {
+    const q = normalizeText(query)
+    if (!q) return rows
+    return (rows ?? []).filter((r) => {
+      const hay = normalizeText(
+        `${r.full_name ?? ''} ${r.phone ?? ''} ${r.link_code ?? ''} ${r.created_at ?? ''}`
+      )
+      return hay.includes(q)
+    })
+  }, [rows, query])
 
   const columns = useMemo<GridColDef<MemberRow>[]>(
     () => [
@@ -172,7 +215,7 @@ export default function Membros() {
             <Button size="small" variant="outlined" onClick={() => openEdit(p.row)}>
               Editar
             </Button>
-            <Button size="small" color="error" variant="outlined" onClick={() => onDelete(p.row)}>
+            <Button size="small" color="error" variant="outlined" onClick={() => askDelete(p.row)}>
               Excluir
             </Button>
           </Box>
@@ -184,13 +227,22 @@ export default function Membros() {
 
   return (
     <Box>
-      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2} gap={2} flexWrap="wrap">
         <Typography variant="h4">Membros</Typography>
 
-        <Box display="flex" gap={1}>
+        <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
+          <TextField
+            size="small"
+            label="Buscar"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Nome, telefone, link code..."
+          />
+
           <Button variant="outlined" onClick={load} disabled={loading}>
-            Atualizar
+            {loading ? 'Atualizando...' : 'Atualizar'}
           </Button>
+
           <Button variant="contained" onClick={openNew} disabled={loading}>
             Novo membro
           </Button>
@@ -199,7 +251,7 @@ export default function Membros() {
 
       <Box sx={{ height: 560, width: '100%', background: '#fff', borderRadius: 1 }}>
         <DataGrid
-          rows={rows}
+          rows={filteredRows}
           columns={columns}
           loading={loading}
           getRowId={(r) => r.id}
@@ -209,10 +261,19 @@ export default function Membros() {
             sorting: { sortModel: [{ field: 'created_at', sort: 'desc' }] },
           }}
           pageSizeOptions={[10, 25, 50, 100]}
+          slots={{
+            noRowsOverlay: () => (
+              <Box sx={{ p: 2, opacity: 0.8 }}>
+                {query?.trim()
+                  ? 'Nenhum membro encontrado para este filtro.'
+                  : 'Nenhum membro cadastrado ainda. Clique em “Novo membro”.'}
+              </Box>
+            ),
+          }}
         />
       </Box>
 
-      <Dialog open={open} onClose={() => !saving && setOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={open} onClose={closeDialog} fullWidth maxWidth="sm">
         <DialogTitle>{editing ? 'Editar membro' : 'Novo membro'}</DialogTitle>
         <DialogContent>
           <Box display="grid" gap={2} mt={1}>
@@ -241,10 +302,13 @@ export default function Membros() {
                 helperText="Pode ser gerado automaticamente (botão abaixo) ou digitado manualmente."
               />
 
-              <Box display="flex" gap={1}>
+              <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
                 <Button variant="outlined" onClick={onGenerateLink} disabled={generatingLink || saving}>
                   {generatingLink ? 'Gerando...' : 'Gerar link code'}
                 </Button>
+
+                {generatingLink ? <CircularProgress size={18} /> : null}
+
                 <Button
                   variant="text"
                   onClick={() => setLinkCode('')}
@@ -258,11 +322,32 @@ export default function Membros() {
         </DialogContent>
 
         <DialogActions>
-          <Button onClick={() => setOpen(false)} disabled={saving}>
+          <Button onClick={closeDialog} disabled={saving}>
             Cancelar
           </Button>
           <Button variant="contained" onClick={onSave} disabled={saving}>
             {saving ? 'Salvando...' : 'Salvar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onClose={() => !deleting && setDeleteOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Excluir membro</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Tem certeza que deseja excluir o membro{' '}
+            <b>{deleteTarget?.full_name ?? '—'}</b>?
+          </Typography>
+          <Typography sx={{ mt: 1, opacity: 0.75 }} variant="body2">
+            Essa ação não pode ser desfeita.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)} disabled={deleting}>
+            Cancelar
+          </Button>
+          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
+            {deleting ? 'Excluindo...' : 'Excluir'}
           </Button>
         </DialogActions>
       </Dialog>

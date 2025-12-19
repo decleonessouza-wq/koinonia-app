@@ -505,6 +505,10 @@ export default function RelatoriosAvancados() {
             options={members}
             loading={membersLoading}
             value={selectedMember}
+            onOpen={() => {
+              // melhora UX: abre e garante lista carregada
+              if (!membersLoading && members.length === 0) loadMembers()
+            }}
             onChange={(_, v) => {
               const id = v?.id ?? ''
               setMemberId(id)
@@ -513,6 +517,13 @@ export default function RelatoriosAvancados() {
             }}
             isOptionEqualToValue={(opt, v) => opt.id === v.id}
             getOptionLabel={(opt) => opt?.full_name ?? opt?.name ?? opt?.id ?? ''}
+            // ✅ corrige o warning "Encountered two children with the same key"
+            renderOption={(props, option) => (
+              <li {...props} key={option.id}>
+                {option.full_name}
+                {option.phone ? ` — ${option.phone}` : ''}
+              </li>
+            )}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -546,8 +557,7 @@ export default function RelatoriosAvancados() {
               slots={{
                 noRowsOverlay: () => (
                   <Box sx={{ p: 2, opacity: 0.8 }}>
-                    {!memberId ? 'Selecione um membro para ver o histórico.' : 'Nenhuma entrada encontrada para este membro.'
-                    }
+                    {!memberId ? 'Selecione um membro para ver o histórico.' : 'Nenhuma entrada encontrada para este membro.'}
                   </Box>
                 ),
               }}
